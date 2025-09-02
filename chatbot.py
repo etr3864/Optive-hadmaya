@@ -6,6 +6,9 @@ from datetime import datetime
 # טען משתני סביבה
 load_dotenv()
 
+# השהת סיכומי שיחה זמנית
+DISABLE_CHAT_SUMMARIES = os.environ.get("DISABLE_CHAT_SUMMARIES", "True") == "True"
+
 # התחברות ל־OpenAI עם המפתח - ללא ברירת מחדל כדי לזהות בעיות
 try:
     OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -651,6 +654,13 @@ def chat_with_gpt(user_message: str, user_id: str = "default") -> str:
             # זו הפעם הראשונה - נשלח הודעה ונסמן שהוא קיבל אותה
             users_at_message_limit[user_id] = datetime.now()
             print(f"🚫 משתמש {user_id} הגיע למגבלה - שולח הודעה יחידה")
+            
+            # צור סיכום לפני ההעברה (אם לא מושבת)
+            if not DISABLE_CHAT_SUMMARIES:
+                summary = summarize_conversation(user_id)
+                save_conversation_summary(user_id, summary)
+            save_conversation_to_file(user_id)
+            
             return (
                 "🚫 הגעת למגבלת 100 הודעות בשיחה הזו.\n"
                 "אני מעביר אותך למענה אנושי שיוכל לעזור לך הלאה.\n"
@@ -707,8 +717,9 @@ def chat_with_gpt(user_message: str, user_id: str = "default") -> str:
     if should_end_conversation_naturally(user_message, conversations[user_id]):
         # בדוק אם יש מספיק מידע על העסק
         if has_enough_business_info(conversations[user_id]):
-            summary = summarize_conversation(user_id)
-            save_conversation_summary(user_id, summary)
+            if not DISABLE_CHAT_SUMMARIES:
+                summary = summarize_conversation(user_id)
+                save_conversation_summary(user_id, summary)
             save_conversation_to_file(user_id)
             
             # הודעת סיום מקצועית רק כשיש מספיק מידע
@@ -722,8 +733,9 @@ def chat_with_gpt(user_message: str, user_id: str = "default") -> str:
     
     # בדוק אם השיחה נעצרה פתאום
     if should_end_conversation_abruptly(user_message, conversations[user_id]):
-        summary = summarize_conversation(user_id)
-        save_conversation_summary(user_id, summary)
+        if not DISABLE_CHAT_SUMMARIES:
+            summary = summarize_conversation(user_id)
+            save_conversation_summary(user_id, summary)
         save_conversation_to_file(user_id)
         
         # הודעת סיום מקצועית
@@ -735,8 +747,9 @@ def chat_with_gpt(user_message: str, user_id: str = "default") -> str:
     # בדיקה אם עברנו את מגבלת ההודעות
     total_messages = len([m for m in conversations[user_id] if m["role"] in ["user", "assistant"]])
     if total_messages >= 100:
-        summary = summarize_conversation(user_id)
-        save_conversation_summary(user_id, summary)
+        if not DISABLE_CHAT_SUMMARIES:
+            summary = summarize_conversation(user_id)
+            save_conversation_summary(user_id, summary)
         save_conversation_to_file(user_id)
         return (
             "🚫 הגענו למגבלת 100 הודעות בשיחה הזו.\n"
@@ -750,8 +763,9 @@ def chat_with_gpt(user_message: str, user_id: str = "default") -> str:
         transferred_to_advisor[user_id] = datetime.now()
         
         # צור סיכום שיחה לפני ההעברה
-        summary = summarize_conversation(user_id)
-        save_conversation_summary(user_id, summary)
+        if not DISABLE_CHAT_SUMMARIES:
+            summary = summarize_conversation(user_id)
+            save_conversation_summary(user_id, summary)
         save_conversation_to_file(user_id)
         
         return (

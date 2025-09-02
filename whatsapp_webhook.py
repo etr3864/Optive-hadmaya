@@ -198,7 +198,7 @@ def flush_buffer(sender):
                 if CLOUDINARY_AVAILABLE:
                     cloud_url = upload_audio_to_cloudinary(tts_audio, "reply.mp3")
                     if cloud_url:
-                        sent = send_audio_via_ultramsg_url(sender, cloud_url, caption="")
+                        sent = send_whatsapp_audio(sender, tts_audio)
                         if sent:
                             print("✅ תשובת אודיו מרוכזת נשלחה בהצלחה")
                             return
@@ -255,6 +255,10 @@ def update_last_message_time(user_id):
 
 def check_for_auto_summary_by_message_count(user_id):
     """בדוק אם צריך לבצע סיכום אוטומטי לפי מספר הודעות"""
+    # בדוק אם סיכומי שיחה מושבתים
+    if DISABLE_CHAT_SUMMARIES:
+        return
+        
     try:
         from chatbot import conversations, summarize_conversation, save_conversation_summary, save_conversation_to_file
         from conversation_summaries import summaries_manager
@@ -319,6 +323,10 @@ def check_and_summarize_old_conversations():
 
 def check_and_notify_inactive_conversations():
     """בדוק חוסר פעילות של שעה: בצע סיכום (בנוסף למנגנון הקיים) ושלח הודעת התראה"""
+    # בדוק אם סיכומי שיחה מושבתים
+    if DISABLE_CHAT_SUMMARIES:
+        return
+        
     try:
         from chatbot import conversations, summarize_conversation, save_conversation_summary, save_conversation_to_file
         from conversation_summaries import summaries_manager
@@ -387,6 +395,14 @@ def check_and_notify_inactive_conversations():
 
 def run_auto_summary_scheduler():
     print("⏰ run_auto_summary_scheduler: starting…", flush=True)
+    
+    # בדוק אם סיכומי שיחה מושבתים
+    if DISABLE_CHAT_SUMMARIES:
+        print("⏸️ סיכומי שיחה מושבתים - scheduler לא יפעיל פונקציות סיכום", flush=True)
+        while True:
+            print("❤️ scheduler heartbeat (סיכומים מושבתים)", flush=True)
+            time.sleep(60)
+        return
 
     # תדירות גבוהה לזיהוי מהיר (אפשר 1 דקה אם רוצים)
     schedule.every(2).minutes.do(check_and_summarize_old_conversations)
@@ -663,13 +679,18 @@ def handle_admin_commands(message, sender):
 
 # טען משתני סביבה - ללא ברירת מחדל כדי לזהות בעיות
 try:
-    INSTANCE_ID = os.environ["ULTRA_INSTANCE_ID"]
-    TOKEN = os.environ["ULTRA_TOKEN"]
+    # Wasend API credentials
+    WASEND_API_KEY = os.environ["WASEND_API_KEY"]
+    WASEND_PHONE_NUMBER = os.environ["WASEND_PHONE_NUMBER"]
     OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
     
-    print("✅ INSTANCE_ID:", INSTANCE_ID)
-    print("✅ TOKEN prefix:", TOKEN[:5] + "*****")
+    # השהת סיכומי שיחה זמנית
+    DISABLE_CHAT_SUMMARIES = os.environ.get("DISABLE_CHAT_SUMMARIES", "True") == "True"
+    
+    print("✅ WASEND_API_KEY prefix:", WASEND_API_KEY[:5] + "*****")
+    print("✅ WASEND_PHONE_NUMBER:", WASEND_PHONE_NUMBER)
     print("✅ OPENAI_API_KEY prefix:", OPENAI_API_KEY[:10] + "*****")
+    print("✅ DISABLE_CHAT_SUMMARIES:", DISABLE_CHAT_SUMMARIES)
     
 except KeyError as e:
     print(f"❌ שגיאה: משתנה סביבה חסר: {e}")
@@ -1235,7 +1256,8 @@ def create_tts_audio_coral(text, voice="shimmer"):
         traceback.print_exc()
         return None
 
-def send_audio_via_ultramsg(to, audio_bytes, caption=""):
+# פונקציות UltraMsg הישנות הוסרו - משתמשים ב-Wasend עכשיו
+def send_audio_via_ultramsg_OLD(to, audio_bytes, caption=""):
     """שלח אודיו דרך UltraMsg API ישירות מה-bytes - ללא שמירת קובץ זמני"""
     try:
         if not audio_bytes:
@@ -1281,7 +1303,7 @@ def send_audio_via_ultramsg(to, audio_bytes, caption=""):
                     print(f"❌ שגיאת UltraMsg API: {response_json['error']}")
                     # נסה לשלוח עם פורמט אחר
                     print("🔄 מנסה פורמט אחר...")
-                    return send_audio_via_ultramsg_alternative(to, audio_bytes, caption)
+                    return send_audio_via_ultramsg_alternative_OLD(to, audio_bytes, caption)
                 else:
                     print("✅ אודיו נשלח בהצלחה דרך UltraMsg")
                     return True
@@ -1294,7 +1316,7 @@ def send_audio_via_ultramsg(to, audio_bytes, caption=""):
             print(f"❌ שגיאה בשליחת אודיו: {response.status_code}")
             # נסה פורמט אחר
             print("🔄 מנסה פורמט אחר...")
-            return send_audio_via_ultramsg_alternative(to, audio_bytes, caption)
+            return send_audio_via_ultramsg_alternative_OLD(to, audio_bytes, caption)
             
     except Exception as e:
         print(f"❌ שגיאה בשליחת אודיו דרך UltraMsg: {e}")
@@ -1302,9 +1324,9 @@ def send_audio_via_ultramsg(to, audio_bytes, caption=""):
         traceback.print_exc()
         # נסה פורמט אחר
         print("🔄 מנסה פורמט אחר...")
-        return send_audio_via_ultramsg_alternative(to, audio_bytes, caption)
+        return send_audio_via_ultramsg_alternative_OLD(to, audio_bytes, caption)
 
-def send_audio_via_ultramsg_alternative(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_alternative_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט חלופי"""
     try:
         print(f"🎵 מנסה פורמט חלופי לשליחת אודיו...")
@@ -1344,7 +1366,7 @@ def send_audio_via_ultramsg_alternative(to, audio_bytes, caption=""):
         print(f"❌ שגיאה בפורמט החלופי: {e}")
         return False
 
-def send_audio_via_ultramsg_fixed(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_fixed_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט מתוקן - פותר את בעיית הפרמטרים החסרים"""
     try:
         print(f"🎵 שולח אודיו עם פורמט מתוקן ל: {to}")
@@ -1416,7 +1438,7 @@ def send_audio_via_ultramsg_fixed(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_simple(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_simple_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט פשוט יותר - נסיון לפתור בעיות API"""
     try:
         print(f"🎵 שולח אודיו עם פורמט פשוט ל: {to}")
@@ -1477,7 +1499,7 @@ def send_audio_via_ultramsg_simple(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_documentation(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_documentation_OLD(to, audio_bytes, caption=""):
     """שלח אודיו לפי התיעוד הרשמי של UltraMsg API"""
     try:
         print(f"🎵 שולח אודיו לפי התיעוד הרשמי ל: {to}")
@@ -1540,7 +1562,7 @@ def send_audio_via_ultramsg_documentation(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_recorald(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_recorald_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם סדר פרמטרים שונה - אולי הבעיה היא בסדר"""
     try:
         print(f"🎵 שולח אודיו עם סדר פרמטרים שונה ל: {to}")
@@ -1601,7 +1623,7 @@ def send_audio_via_ultramsg_recorald(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_form_data(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_form_data_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט form-data שונה - אולי הבעיה היא בפורמט"""
     try:
         print(f"🎵 שולח אודיו עם פורמט form-data שונה ל: {to}")
@@ -1671,7 +1693,7 @@ def send_audio_via_ultramsg_form_data(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_json(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_json_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט JSON - אולי הבעיה היא בפורמט של הבקשה"""
     try:
         print(f"🎵 שולח אודיו עם פורמט JSON ל: {to}")
@@ -1742,7 +1764,7 @@ def send_audio_via_ultramsg_json(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_final(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_final_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט סופי - נסיון אחרון לפתור את הבעיה"""
     try:
         print(f"🎵 שולח אודיו עם פורמט סופי ל: {to}")
@@ -2265,7 +2287,7 @@ def handle_voice_message(payload, sender):
                 cloud_url = upload_audio_to_cloudinary(tts_audio, "reply.mp3")
                 if cloud_url:
                     print("📤 שולח את קישור ה-Cloudinary כהודעת אודיו...")
-                    sent = send_audio_via_ultramsg_url(sender, cloud_url, caption="")
+                    sent = send_whatsapp_audio(sender, tts_audio)
                     if sent:
                         print("✅ הודעת אודיו נשלחה בהצלחה (Cloudinary URL)")
                         return "OK", 200
@@ -2415,21 +2437,22 @@ def handle_image_message(payload, sender):
         return "Error", 500
 
 def send_whatsapp_message(to, message):
-    """שלח הודעת טקסט"""
-    url = f"https://api.ultramsg.com/{INSTANCE_ID}/messages/chat"
+    """שלח הודעת טקסט דרך Wasend API"""
+    url = "https://api.wasend.com/send"
     
-    # הוסף את הטוקן כפרמטר GET
-    params = {
-        'token': TOKEN
+    headers = {
+        'Authorization': f'Bearer {WASEND_API_KEY}',
+        'Content-Type': 'application/json'
     }
     
     payload = {
+        "from": WASEND_PHONE_NUMBER,
         "to": to,
-        "body": message
+        "message": message
     }
     
-    response = requests.post(url, data=payload, params=params)
-    print("📤 הודעת טקסט נשלחה:", response.text)
+    response = requests.post(url, json=payload, headers=headers)
+    print("📤 הודעת טקסט נשלחה דרך Wasend:", response.text)
 
 def send_whatsapp_audio(to, audio_data):
     """שלח הודעה קולית - ללא קבצים זמניים"""
@@ -2439,33 +2462,31 @@ def send_whatsapp_audio(to, audio_data):
             print("⚠️ קובץ אודיו ריק או קטן מדי לשליחה")
             return False
         
-        print(f"🎵 שולח הודעה קולית: {len(audio_data)} bytes")
+        print(f"🎵 שולח הודעה קולית דרך Wasend: {len(audio_data)} bytes")
         
-        # שלח את האודיו ישירות עם BytesIO
-        from io import BytesIO
-        audio_file = BytesIO(audio_data)
-        audio_file.name = "audio.mp3"
+        # המר את האודיו ל-base64
+        import base64
+        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
         
-        # שלח את קובץ האודיו עם token כפרמטר GET
-        url = f"https://api.ultramsg.com/{INSTANCE_ID}/messages/audio"
+        url = "https://api.wasend.com/send"
         
-        # הוסף את הטוקן כפרמטר GET
-        params = {
-            'token': TOKEN
+        headers = {
+            'Authorization': f'Bearer {WASEND_API_KEY}',
+            'Content-Type': 'application/json'
         }
         
-        # שלח את האודיו עם MIME type נכון
-        files = {
-            'audio': ('audio.mp3', audio_file, 'audio/mpeg')
+        payload = {
+            "from": WASEND_PHONE_NUMBER,
+            "to": to,
+            "type": "audio",
+            "audio": {
+                "data": audio_base64,
+                "filename": "audio.mp3"
+            }
         }
         
-        # שלח את הפרמטרים הנדרשים ב-data
-        data = {
-            'to': to
-        }
-        
-        response = requests.post(url, files=files, data=data, params=params)
-        print("🎵 תגובת API:", response.text)
+        response = requests.post(url, json=payload, headers=headers)
+        print("🎵 תגובת Wasend API:", response.text)
         
         # בדוק אם השליחה הצליחה
         if response.status_code == 200:
@@ -2473,12 +2494,12 @@ def send_whatsapp_audio(to, audio_data):
             try:
                 response_json = response.json()
                 if "error" in response_json:
-                    print(f"❌ שגיאת API: {response_json['error']}")
+                    print(f"❌ שגיאת Wasend API: {response_json['error']}")
                     return False
             except:
                 pass
             
-            print("✅ הודעה קולית נשלחה בהצלחה")
+            print("✅ הודעה קולית נשלחה בהצלחה דרך Wasend")
             return True
         else:
             print(f"⚠️ שגיאה בשליחת הודעה קולית: {response.status_code}")
@@ -2597,7 +2618,7 @@ def get_voice_system_stats():
         print(f"❌ שגיאה באיסוף סטטיסטיקות: {e}")
         return {"error": str(e)}
 
-def send_audio_via_ultramsg_base64(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_base64_OLD(to, audio_bytes, caption=""):
     """שלח אודיו עם פורמט base64 - פתרון חלופי לבעיית הפרמטרים"""
     try:
         print(f"🎵 שולח אודיו עם פורמט base64 ל: {to}")
@@ -2662,7 +2683,7 @@ def send_audio_via_ultramsg_base64(to, audio_bytes, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_url(to, audio_url, caption=""):
+def send_audio_via_ultramsg_url_OLD(to, audio_url, caption=""):
     """שלח אודיו עם URL של קובץ - פתרון חלופי לבעיית הפרמטרים"""
     try:
         print(f"🎵 שולח אודיו עם URL של קובץ ל: {to}")
@@ -2723,7 +2744,7 @@ def send_audio_via_ultramsg_url(to, audio_url, caption=""):
         traceback.print_exc()
         return False
 
-def send_audio_via_ultramsg_official(to, audio_bytes, caption=""):
+def send_audio_via_ultramsg_official_OLD(to, audio_bytes, caption=""):
     """שלח אודיו לפי התיעוד הרשמי של UltraMsg API - פורמט מדויק עם Cloudinary"""
     try:
         print(f"🎵 שולח אודיו לפי התיעוד הרשמי ל: {to}")
@@ -2739,74 +2760,15 @@ def send_audio_via_ultramsg_official(to, audio_bytes, caption=""):
                 
                 # שלח את ה-URL של Cloudinary ל-ULTRAmsg
                 print("📤 שולח URL של Cloudinary ל-ULTRAmsg...")
-                return send_audio_via_ultramsg_url(to, cloudinary_url, caption)
+                return send_whatsapp_audio(to, audio_bytes)
             else:
                 print("⚠️ העלאה ל-Cloudinary נכשלה, מנסה לשלוח ישירות...")
         else:
             print("⚠️ Cloudinary לא זמין, מנסה לשלוח ישירות...")
         
         # אם Cloudinary לא עובד, נסה לשלוח ישירות
-        print("📤 מנסה לשלוח אודיו ישירות ל-ULTRAmsg...")
-        url = f"https://api.ultramsg.com/{INSTANCE_ID}/messages/audio"
-        
-        # שלח את הטוקן כפרמטר GET
-        params = {
-            'token': TOKEN
-        }
-        
-        # שלח את האודיו עם BytesIO
-        from io import BytesIO
-        audio_file = BytesIO(audio_bytes)
-        audio_file.name = "audio.mp3"
-        
-        # שלח את הפרמטרים הנדרשים ב-data
-        data = {
-            'to': to,
-            'caption': caption
-        }
-        
-        # שלח את האודיו ב-files עם MIME type נכון
-        files = {
-            'audio': ('audio.mp3', audio_file, 'audio/mpeg')
-        }
-        
-        print(f"🎵 שולח עם פרמטרים: to={to}, caption={caption}")
-        print(f"🎵 גודל אודיו: {len(audio_bytes)} bytes")
-        print(f"🎵 URL: {url}")
-        print(f"🎵 Token: {TOKEN[:5]}*****")
-        
-        # שלח את הבקשה עם headers מותאמים בדיוק לתיעוד
-        headers = {
-            'User-Agent': 'UltraMsg-Client/1.0',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive'
-        }
-        
-        # שלח את הבקשה
-        response = requests.post(url, files=files, data=data, params=params, headers=headers)
-        print(f"🎵 תגובת UltraMsg API: {response.status_code}")
-        print(f"🎵 תוכן תגובה: {response.text}")
-        
-        # בדוק את התגובה
-        if response.status_code == 200:
-            try:
-                response_json = response.json()
-                if "error" in response_json:
-                    print(f"❌ שגיאת UltraMsg API: {response_json['error']}")
-                    return False
-                else:
-                    print("✅ אודיו נשלח בהצלחה לפי התיעוד הרשמי!")
-                    return True
-            except Exception as e:
-                print(f"⚠️ לא הצלחתי לפרסר JSON: {e}")
-                # אם התגובה היא 200, נניח שהשליחה הצליחה
-                print("✅ אודיו נשלח בהצלחה!")
-                return True
-        else:
-            print(f"❌ שגיאה בשליחת אודיו: {response.status_code}")
-            return False
+        print("📤 מנסה לשלוח אודיו ישירות ל-Wasend...")
+        return send_whatsapp_audio(to, audio_bytes)
             
     except Exception as e:
         print(f"❌ שגיאה בשליחת אודיו: {e}")
